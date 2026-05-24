@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IBON代碼提取器</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 0 20px;
+            background-color: #f4f6f8;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+        .description {
+            text-align: center;
+            color: #666;
+            margin-bottom: 25px;
+        }
+        #drop-zone {
+            border: 2px dashed #2ecc71;
+            border-radius: 8px;
+            padding: 35px 20px;
+            text-align: center;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            margin-bottom: 15px;
+        }
+        #drop-zone:hover, #drop-zone.dragover {
+            background-color: #f0fff4;
+            border-color: #27ae60;
+        }
+        #file-input {
+            display: none;
+        }
+        #global-status {
+            margin: 15px 0;
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: bold;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #c8e6c9;
+        }
+
+        /* 總計匯整區塊樣式 */
+        #summary-container {
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+            border-left: 5px solid #3498db;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.05);
+        }
+        #summary-container h2 {
+            margin-top: 0;
+            font-size: 1.3rem;
+            color: #2c3e50;
+            border-bottom: 1px solid #edf2f7;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .clear-btn {
+            background-color: #e53e3e;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .clear-btn:hover { background-color: #c53030; }
+
+        /* 通用數字標籤樣式 */
+        .number-tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .number-tag {
+            background: #edf2f7;
+            border: 1px solid #cbd5e0;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 1.1rem;
+            color: #2d3748;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+        .tag-copy-btn {
+            background: #3182ce;
+            color: white;
+            border: none;
+            padding: 3px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .tag-copy-btn:hover { background: #2b6cb0; }
+        
+        /* 批次卡片樣式 */
+        .batch-container {
+            margin-top: 25px;
+        }
+        .file-card {
+            background: #fff;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #edf2f7;
+            padding-bottom: 8px;
+        }
+        .file-name {
+            font-weight: bold;
+            color: #4a5568;
+            word-break: break-all;
+        }
+        .file-status {
+            font-size: 0.9rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status-waiting { background: #edf2f7; color: #718096; }
+        .status-processing { background: #ebf8ff; color: #2b6cb0; }
+        .status-done { background: #e6fffa; color: #234e52; }
+        .status-fail { background: #fff5f5; color: #9b2c2c; }
+
+        .file-body {
+            display: flex;
+            gap: 15px;
+            align-items: flex-start;
+        }
+        @media (max-width: 600px) {
+            .file-body { flex-direction: column; }
+        }
+        .img-preview {
+            max-width: 120px;
+            max-height: 120px;
+            object-fit: contain;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            background: #f7fafc;
+        }
+        .results-box {
+            flex: 1;
+        }
+        .msg-info { color: #718096; font-style: italic; font-size: 0.95rem; }
+    </style>
+</head>
+<body>
+
+    <h1>IBON代碼提取器</h1>
+    <p class="description">
+        支援 <strong>批次多選</strong>、<strong>批次拖放</strong> 或直接 <strong>Ctrl+V 貼上截圖</strong>。上方會自動合併並去重列出所有數字。
+    </p>
+
+    <div id="drop-zone">
+        <p>把一張或<strong>多張圖片</strong>拖到這裡、點擊批次選擇，或直接按 <strong>Ctrl+V 貼上</strong></p>
+        <input type="file" id="file-input" accept="image/*" multiple>
+    </div>
+
+    <div id="global-status">正在初始化辨識引擎...</div>
+
+    <div id="summary-container">
+        <h2>
+            <span>總計匯整欄位 (不重複數字：<span id="total-count">0</span> 組)</span>
+            <button class="clear-btn" id="clear-all-btn">清空所有記錄</button>
+        </h2>
+        <div id="total-results-placeholder" class="msg-info">目前尚無辨識成功的數字，請在上方上傳或貼上圖片。</div>
+        <div id="total-tags-container" class="number-tag-container" style="display: none;"></div>
+    </div>
+
+    <div class="batch-container" id="batch-container">
+        </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const globalStatus = document.getElementById('global-status');
+        const batchContainer = document.getElementById('batch-container');
+        
+        // 彙整欄位的 DOM
+        const totalCountSpan = document.getElementById('total-count');
+        const totalPlaceholder = document.getElementById('total-results-placeholder');
+        const totalTagsContainer = document.getElementById('total-tags-container');
+        const clearAllBtn = document.getElementById('clear-all-btn');
+
+        let ocrWorker = null;
+        let fileQueue = [];
+        let isProcessing = false;
+
+        // 全域儲存所有圖片識別到的「不重複數字組合」
+        let allExtractedNumbers = new Set();
+
+        // 初始化極速數字 OCR 引擎
+        async function initOCR() {
+            try {
+                globalStatus.textContent = "正在載入辨識引擎組件...";
+                ocrWorker = await Tesseract.createWorker('eng');
+                
+                // 設定 OCR 參數：只允許辨識數字，略過所有英文字母與符號，速度提升數倍
+                await ocrWorker.setParameters({
+                    tessedit_char_whitelist: '0123456789'
+                });
+                
+                globalStatus.textContent = "⚡ 引擎就緒！請上傳、拖放多張圖片或直接貼上。";
+                globalStatus.style.backgroundColor = "#e6fffa";
+                globalStatus.style.color = "#234e52";
+                globalStatus.style.borderColor = "#b2f5ea";
+            } catch (err) {
+                console.error(err);
+                globalStatus.textContent = "❌ 引擎初始化失敗，請重新整理網頁。";
+                globalStatus.style.backgroundColor = "#fff5f5";
+                globalStatus.style.color = "#9b2c2c";
+            }
+        }
+        initOCR();
+
+        // 觸發選擇檔案
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        // 拖曳事件
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        // 貼上事件
+        document.addEventListener('paste', (e) => {
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            const files = [];
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    files.push(items[i].getAsFile());
+                }
+            }
+            if (files.length > 0) handleFiles(files);
+        });
+
+        // 清空所有記錄
+        clearAllBtn.addEventListener('click', () => {
+            if(confirm("確定要清空畫面上所有的辨識結果與歷史紀錄嗎？")) {
+                allExtractedNumbers.clear();
+                updateGlobalSummary();
+                batchContainer.innerHTML = '';
+            }
+        });
+
+        // 處理接收到的多個檔案
+        function handleFiles(files) {
+            if (!ocrWorker) {
+                alert("辨識引擎尚未準備好，請稍候。");
+                return;
+            }
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                if (!file.type.startsWith('image/')) continue;
+
+                const fileId = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                
+                // 建立該檔案的 UI 卡片
+                createFileCard(file, fileId);
+                
+                // 推入佇列
+                fileQueue.push({ file, fileId });
+            }
+
+            // 開始排隊依序處理
+            processQueue();
+        }
+
+        // 建立個別檔案的顯示區塊
+        function createFileCard(file, fileId) {
+            const card = document.createElement('div');
+            card.className = 'file-card';
+            card.id = fileId;
+
+            card.innerHTML = `
+                <div class="file-header">
+                    <span class="file-name">${file.name || '剪貼簿貼上圖片'}</span>
+                    <span class="file-status status-waiting" id="status_${fileId}">排隊中</span>
+                </div>
+                <div class="file-body">
+                    <img class="img-preview" id="img_${fileId}" src="" alt="預覽">
+                    <div class="results-box">
+                        <div id="results_${fileId}" class="msg-info">等待辨識...</div>
+                    </div>
+                </div>
+            `;
+            
+            // 最新建立的圖片置頂顯示
+            batchContainer.insertBefore(card, batchContainer.firstChild);
+
+            // 讀取圖片預覽
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                document.getElementById(`img_${fileId}`).src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 佇列排序處理控制器
+        async function processQueue() {
+            if (isProcessing || fileQueue.length === 0) return;
+            isProcessing = true;
+
+            const current = fileQueue.shift();
+            const { file, fileId } = current;
+
+            const statusEl = document.getElementById(`status_${fileId}`);
+            const resultsEl = document.getElementById(`results_${fileId}`);
+
+            statusEl.textContent = "辨識中...";
+            statusEl.className = "file-status status-processing";
+            resultsEl.textContent = "核心正在全速解碼數字...";
+
+            try {
+                // 執行辨識
+                const { data: { text } } = await ocrWorker.recognize(file);
+                
+                // 依常見分隔符號切開字串，過濾出剛好長度為 10 且全部都是數字的字串
+                const tokens = text.split(/[\s,.;:!?|'\"()\[\]{}～—\n\r]+/);
+                const matches = tokens.filter(token => /^\d{10}$/.test(token));
+                const uniqueMatches = Array.from(new Set(matches));
+
+                // 更新該圖片的卡片 UI
+                statusEl.textContent = "完成";
+                statusEl.className = "file-status status-done";
+                
+                if (uniqueMatches.length === 0) {
+                    resultsEl.innerHTML = `<span class="msg-info">未發現符合剛好連續 10 位的數字字串。</span>`;
+                } else {
+                    resultsEl.innerHTML = `<strong>此圖提取到 ${uniqueMatches.length} 組結果：</strong>`;
+                    const tagContainer = document.createElement('div');
+                    tagContainer.className = 'number-tag-container';
+                    
+                    uniqueMatches.forEach(num => {
+                        // 同步加入全域總計集
+                        allExtractedNumbers.add(num);
+
+                        const tag = document.createElement('span');
+                        tag.className = 'number-tag';
+                        tag.innerHTML = `
+                            <span>${num}</span>
+                            <button class="tag-copy-btn" onclick="copyText('${num}', this)">複製</button>
+                        `;
+                        tagContainer.appendChild(tag);
+                    });
+                    resultsEl.appendChild(tagContainer);
+                }
+
+                // 每處理完一張，就更新一次頂部的全域總計欄位
+                updateGlobalSummary();
+
+            } catch (err) {
+                console.error(err);
+                statusEl.textContent = "失敗";
+                statusEl.className = "file-status status-fail";
+                resultsEl.innerHTML = `<span style="color:#c62828;">辨識出錯，可能圖片損壞或格式不支援。</span>`;
+            }
+
+            isProcessing = false;
+            // 繼續處理佇列中的下一張圖片
+            processQueue();
+        }
+
+        // 更新頂部「一次全部列出」的欄位
+        function updateGlobalSummary() {
+            totalCountSpan.textContent = allExtractedNumbers.size;
+
+            if (allExtractedNumbers.size === 0) {
+                totalPlaceholder.style.display = 'block';
+                totalTagsContainer.style.display = 'none';
+                totalTagsContainer.innerHTML = '';
+                return;
+            }
+
+            totalPlaceholder.style.display = 'none';
+            totalTagsContainer.innerHTML = '';
+            totalTagsContainer.style.display = 'flex';
+
+            // 將全域 Set 排序後依序渲染，讓畫面整齊好看
+            const sortedNumbers = Array.from(allExtractedNumbers).sort();
+
+            sortedNumbers.forEach(num => {
+                const tag = document.createElement('span');
+                tag.className = 'number-tag';
+                tag.innerHTML = `
+                    <strong>${num}</strong>
+                    <button class="tag-copy-btn" onclick="copyText('${num}', this)">複製</button>
+                `;
+                totalTagsContainer.appendChild(tag);
+            });
+        }
+
+        // 獨立複製功能
+        function copyText(text, btn) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = btn.textContent;
+                btn.textContent = '已複製!';
+                btn.style.backgroundColor = '#27ae60';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.backgroundColor = '#3182ce';
+                }, 1200);
+            });
+        }
+    </script>
+</body>
+</html>
