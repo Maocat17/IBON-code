@@ -118,9 +118,6 @@
                 if (items[i].type.indexOf('image') !== -1) files.push(items[i].getAsFile());
             }
             if (files.length > 0) {
-                cardResultsMap.clear();
-                deletedGlobalNumbers.clear(); // 新貼上時重設排除名單
-                batchContainer.innerHTML = '';
                 handleFiles(files);
             }
         });
